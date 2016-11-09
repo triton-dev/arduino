@@ -1,0 +1,3 @@
+# LM35 temperature controll with LCD and RTC
+
+Just for fun...
