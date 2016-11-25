@@ -1,3 +1,4 @@
+
 /*
 * Arduino Pro Micro
 * Board: Arduino Micro
@@ -11,6 +12,18 @@
 
 #include <LiquidCrystal_I2C.h>
 #include <Wire.h>
+#include <EEPROM.h>
+
+
+// Beállított idő jelzője EEPROM 0x00h címen
+// 0 nincs beállítva, 0xffh beállítva
+const byte RTC_ok = 0;
+
+// RTC modul címe
+const byte RTC_addr = 0x68;
+//RTC modul EEPROM címe
+const byte RTC_EEPROM_addr = 0x57;
+
 
 // AD átalakítás feszültsége. Nem 5 Volt, mert a védő diódán esik pár tized volt,
 const int VDD = 469;
@@ -97,6 +110,12 @@ void setup() {
     delay(600);
   }
   lcd.noBacklight();
+  // RTC beállítása
+  if (EEPROM.read(0) == 0) {
+    setRTC(00, 49, 21, 5, 24, 11, 16);
+    EEPROM.write(0, 255);
+  }
+
 } // end setup
 // *********************************************************
 
@@ -107,10 +126,10 @@ void loop() {
 
   // Hiszterézis pinek olvasásása, hiszterézis beállítása
   byte Hyst = hister_olvas();
-  lcd.setCursor(14,2);
+  lcd.setCursor(14, 2);
   lcd.print("H");
   lcd.print(Hyst);
-  
+
   // LCD háttérfény bekapcsolása
   if (digitalRead(LCD_BE_GOMB) == HIGH && !LCD_be) {
     LCD_be = true;
@@ -140,7 +159,7 @@ void loop() {
       RELE_szamlalo++;
       digitalWrite(RELE, HIGH);
     }
-    
+
     // Relé elengedése, ha az átlaghőmérséklet  eléri, vagy meghaladja
     //  a bekapcsolási hőmérsékletet.
     if ((atlaghomerseklet > be_homerseklet) && (cpuido - elozo_bekapcsolas >= bekapcsolaskoz)) {
@@ -149,7 +168,7 @@ void loop() {
       digitalWrite(RELE, LOW);
     }
   }
-  
+
   if (RELE_be) {
     lcd.setCursor(0, 1);
     lcd.print("I");
@@ -164,6 +183,8 @@ void loop() {
   Serial.print(atlaghomerseklet);
   Serial.print(" ");
   Serial.println(RELE_be);
+
+  RTCido();
 
 } //end loop
 // *********************************************************
@@ -198,7 +219,7 @@ void meres() {
 } // Mérés vége.
 
 // Hiszterézis beolvasása a HISTPINx alapján
-// 
+//
 byte hister_olvas() {
   byte h = 0;
   if (digitalRead(HISTPIN1)) {
@@ -209,3 +230,94 @@ byte hister_olvas() {
   }
   return h;
 } // Hiszterézis olvasás vége.
+
+// Konverziók óra kezeléshez
+byte dec2bcd (byte val) {
+  return ( (val / 10 * 16) + (val % 10));
+}
+byte bcd2dec (byte val) {
+  return ( (val / 16 * 10) + (val % 16) );
+}
+// RTC beállítása
+void setRTC(byte second, byte minute, byte hour, byte dayOfWeek, byte
+            dayOfMonth, byte month, byte year)
+{
+  // DS3231 óra és dátum beállítása
+  Wire.beginTransmission(RTC_addr);
+  Wire.write(0); // Másodperc regiszter címe
+  Wire.write(dec2bcd(second)); // másodperc
+  Wire.write(dec2bcd(minute)); // perc
+  Wire.write(dec2bcd(hour)); // óra
+  Wire.write(dec2bcd(dayOfWeek)); // nap száma (1=Vasárnap, 7=Szombat)
+  Wire.write(dec2bcd(dayOfMonth)); // nap (1 to 31)
+  Wire.write(dec2bcd(month)); // hónap
+  Wire.write(dec2bcd(year)); // év (0 to 99)
+  Wire.endTransmission();
+}
+// RTC olvasása
+void getRTC(byte *second, byte *minute, byte *hour, byte *dayOfWeek, byte *dayOfMonth, byte *month, byte *year) {
+  Wire.beginTransmission(RTC_addr);
+  Wire.write(0); // DS3231 másodperc címe
+  Wire.endTransmission();
+  Wire.requestFrom(RTC_addr, 7);
+  // 7 bájt olvasása DS3231-ről 00h címtől kezdve
+  *second = bcd2dec(Wire.read() & 0x7f);
+  *minute = bcd2dec(Wire.read());
+  *hour = bcd2dec(Wire.read() & 0x3f);
+  *dayOfWeek = bcd2dec(Wire.read());
+  *dayOfMonth = bcd2dec(Wire.read());
+  *month = bcd2dec(Wire.read());
+  *year = bcd2dec(Wire.read());
+}
+// RTC kijelzése
+void RTCido()
+{
+  byte second, minute, hour, dayOfWeek, dayOfMonth, month, year;
+  // adat olvasása RTC-ről
+  getRTC (&second, &minute, &hour, &dayOfWeek, &dayOfMonth, &month, &year);
+  //
+  Serial.print(hour, DEC);
+  Serial.print(":");
+  if (minute < 10)
+  {
+    Serial.print("0");
+  }
+  Serial.print(minute, DEC);
+  Serial.print(":");
+  if (second < 10)
+  {
+    Serial.print("0");
+  }
+  Serial.print(second, DEC);
+  Serial.print(" 20");
+  Serial.print(year, DEC);
+  Serial.print(".");
+  Serial.print(month, DEC);
+  Serial.print(".");
+  Serial.print(dayOfMonth, DEC);
+  Serial.print(", ");
+  switch (dayOfWeek) {
+    case 1:
+      Serial.print("V");
+      break;
+    case 2:
+      Serial.print("H");
+      break;
+    case 3:
+      Serial.print("K");
+      break;
+    case 4:
+      Serial.print("Sze");
+      break;
+    case 5:
+      Serial.print("Cs");
+      break;
+    case 6:
+      Serial.print("P");
+      break;
+    case 7:
+      Serial.print("Szo");
+      break;
+  }
+  Serial.print(" ");
+}
